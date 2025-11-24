@@ -174,16 +174,26 @@ class WalletResource extends Resource
                                     ->native(false)
                                     ->live()
                                     ->afterStateUpdated(function (Get $get, Set $set) {
-                                        $amount = $get('from_amount');
                                         $toWalletId = $get('to_wallet_id');
-                                        if ($amount && $toWalletId) {
+                                        if ($toWalletId) {
                                             $fromWallet = Wallet::find($get('from_wallet_id'));
                                             $toWallet = Wallet::find($toWalletId);
                                             if ($fromWallet && $toWallet) {
-                                                $rate = ExchangeRate::getRate($fromWallet->currency, $toWallet->currency);
+                                                // Get last used exchange rate for this currency pair
+                                                $lastTransfer = WalletTransfer::where('from_currency', $fromWallet->currency)
+                                                    ->where('to_currency', $toWallet->currency)
+                                                    ->whereNotNull('exchange_rate')
+                                                    ->latest()
+                                                    ->first();
+
+                                                $rate = $lastTransfer ? $lastTransfer->exchange_rate : ExchangeRate::getRate($fromWallet->currency, $toWallet->currency);
+
                                                 if ($rate) {
                                                     $set('exchange_rate', $rate);
-                                                    $set('to_amount', round($amount * $rate, 2));
+                                                    $amount = $get('from_amount');
+                                                    if ($amount) {
+                                                        $set('to_amount', round($amount * $rate, 2));
+                                                    }
                                                 }
                                             }
                                         }
@@ -203,20 +213,9 @@ class WalletResource extends Resource
                                     ->step(0.01)
                                     ->live(onBlur: true)
                                     ->afterStateUpdated(function (Get $get, Set $set, $state) {
-                                        $toWalletId = $get('to_wallet_id');
-                                        if ($state && $toWalletId) {
-                                            $fromWallet = Wallet::find($get('from_wallet_id'));
-                                            $toWallet = Wallet::find($toWalletId);
-                                            if ($fromWallet && $toWallet) {
-                                                $rate = ExchangeRate::getRate($fromWallet->currency, $toWallet->currency);
-                                                if ($rate) {
-                                                    $set('exchange_rate', $rate);
-                                                    $set('to_amount', round($state * $rate, 2));
-                                                } else {
-                                                    $set('exchange_rate', null);
-                                                    $set('to_amount', null);
-                                                }
-                                            }
+                                        $rate = $get('exchange_rate');
+                                        if ($state && $rate) {
+                                            $set('to_amount', round($state * $rate, 2));
                                         }
                                     })
                                     ->helperText(fn ($record) => 'Available balance: ' . number_format($record->balance, 2) . ' ' . $record->currency),
@@ -224,38 +223,43 @@ class WalletResource extends Resource
 
                         Forms\Components\Section::make('Exchange Rate & Conversion')
                             ->schema([
-                                Forms\Components\Placeholder::make('exchange_rate_display')
-                                    ->label('Exchange Rate')
-                                    ->content(function (Get $get) {
-                                        $rate = $get('exchange_rate');
+                                Forms\Components\TextInput::make('exchange_rate')
+                                    ->label(function (Get $get) {
                                         $fromWallet = Wallet::find($get('from_wallet_id'));
                                         $toWallet = Wallet::find($get('to_wallet_id'));
 
-                                        if (!$rate || !$fromWallet || !$toWallet) {
-                                            return 'Select destination wallet to see exchange rate';
+                                        if ($fromWallet && $toWallet) {
+                                            return 'Exchange Rate (1 ' . $fromWallet->currency . ' = ? ' . $toWallet->currency . ')';
                                         }
 
-                                        if ($fromWallet->currency === $toWallet->currency) {
-                                            return '1.00 (Same currency)';
+                                        return 'Exchange Rate';
+                                    })
+                                    ->required()
+                                    ->numeric()
+                                    ->minValue(0.00000001)
+                                    ->step(0.00000001)
+                                    ->live(onBlur: true)
+                                    ->afterStateUpdated(function (Get $get, Set $set, $state) {
+                                        $amount = $get('from_amount');
+                                        if ($state && $amount) {
+                                            $set('to_amount', round($amount * $state, 2));
                                         }
-
-                                        return number_format($rate, 8) . ' (1 ' . $fromWallet->currency . ' = ' . number_format($rate, 8) . ' ' . $toWallet->currency . ')';
-                                    }),
-                                Forms\Components\Hidden::make('exchange_rate'),
-                                Forms\Components\Placeholder::make('to_amount_display')
-                                    ->label('Amount to be Credited')
-                                    ->content(function (Get $get) {
-                                        $toAmount = $get('to_amount');
+                                    })
+                                    ->helperText('Last used rate auto-filled. You can edit it.')
+                                    ->columnSpan(1),
+                                Forms\Components\TextInput::make('to_amount')
+                                    ->label(function (Get $get) {
                                         $toWallet = Wallet::find($get('to_wallet_id'));
-
-                                        if (!$toAmount || !$toWallet) {
-                                            return 'Enter amount to see converted value';
-                                        }
-
-                                        return number_format($toAmount, 2) . ' ' . $toWallet->currency;
-                                    }),
-                                Forms\Components\Hidden::make('to_amount'),
+                                        return $toWallet ? 'Amount to be Credited (' . $toWallet->currency . ')' : 'Amount to be Credited';
+                                    })
+                                    ->required()
+                                    ->numeric()
+                                    ->disabled()
+                                    ->dehydrated()
+                                    ->helperText('Auto-calculated from amount × exchange rate')
+                                    ->columnSpan(1),
                             ])
+                            ->columns(2)
                             ->visible(fn (Get $get) => $get('to_wallet_id') !== null),
 
                         Forms\Components\Section::make('Additional Information')
@@ -280,19 +284,9 @@ class WalletResource extends Resource
                             return;
                         }
 
-                        // Get or calculate exchange rate
-                        $rate = ExchangeRate::getRate($fromWallet->currency, $toWallet->currency);
-                        if (!$rate && $fromWallet->currency !== $toWallet->currency) {
-                            Notification::make()
-                                ->danger()
-                                ->title('Exchange Rate Not Found')
-                                ->body('No active exchange rate found for ' . $fromWallet->currency . ' to ' . $toWallet->currency)
-                                ->send();
-                            return;
-                        }
-
-                        // Calculate converted amount
-                        $toAmount = $data['to_amount'] ?? ExchangeRate::convert($data['from_amount'], $fromWallet->currency, $toWallet->currency);
+                        // Use exchange rate from form
+                        $rate = $data['exchange_rate'];
+                        $toAmount = $data['to_amount'];
 
                         // Create transfer record
                         $transfer = WalletTransfer::create([
@@ -303,10 +297,7 @@ class WalletResource extends Resource
                             'to_amount' => $toAmount,
                             'to_currency' => $toWallet->currency,
                             'exchange_rate' => $rate,
-                            'exchange_rate_id' => ExchangeRate::where('from_currency', $fromWallet->currency)
-                                ->where('to_currency', $toWallet->currency)
-                                ->where('is_active', true)
-                                ->first()?->id,
+                            'exchange_rate_id' => null, // No longer needed
                             'description' => $data['description'] ?? null,
                             'status' => 'pending',
                             'created_by' => auth()->id(),

@@ -11,9 +11,6 @@ class Order extends Model
 {
     protected $fillable = [
         'order_number',
-        'product_id',
-        'quantity_expected',
-        'price_per_unit',
         'total_price',
         'country_origin',
         'supplier_id',
@@ -27,8 +24,6 @@ class Order extends Model
     ];
 
     protected $casts = [
-        'quantity_expected' => 'integer',
-        'price_per_unit' => 'decimal:2',
         'total_price' => 'decimal:2',
         'delivery_date_expected' => 'date',
     ];
@@ -44,9 +39,9 @@ class Order extends Model
         });
     }
 
-    public function product(): BelongsTo
+    public function items(): HasMany
     {
-        return $this->belongsTo(Product::class);
+        return $this->hasMany(OrderItem::class);
     }
 
     public function supplier(): BelongsTo

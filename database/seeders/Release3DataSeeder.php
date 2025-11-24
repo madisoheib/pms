@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\Client;
 use App\Models\Loss;
 use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\Stock;
 use App\Models\StockHub;
@@ -101,13 +102,10 @@ class Release3DataSeeder extends Seeder
             $this->command->info('Creating sample orders...');
             $mainHub = $createdHubs[0]; // Main Warehouse Algiers
 
-            // Order 1: Pending order (just created)
+            // Order 1: Pending order (just created) - with multiple products
             $order1 = Order::create([
                 'order_number' => 'ORD-' . strtoupper(uniqid()),
-                'product_id' => $products[0]->id,
-                'quantity_expected' => 1000,
-                'price_per_unit' => 150.00,
-                'total_price' => 150000.00,
+                'total_price' => 200000.00,
                 'country_origin' => 'China',
                 'supplier_id' => $suppliers[0]->id,
                 'client_id' => null, // Stock inventory
@@ -119,12 +117,25 @@ class Release3DataSeeder extends Seeder
                 'created_by' => $user->id,
             ]);
 
+            // Add items to order 1
+            OrderItem::create([
+                'order_id' => $order1->id,
+                'product_id' => $products[0]->id,
+                'quantity' => 1000,
+                'price_per_unit' => 150.00,
+                'subtotal' => 150000.00,
+            ]);
+            OrderItem::create([
+                'order_id' => $order1->id,
+                'product_id' => $products[1]->id,
+                'quantity' => 200,
+                'price_per_unit' => 250.00,
+                'subtotal' => 50000.00,
+            ]);
+
             // Order 2: In transit
             $order2 = Order::create([
                 'order_number' => 'ORD-' . strtoupper(uniqid()),
-                'product_id' => $products[1]->id,
-                'quantity_expected' => 500,
-                'price_per_unit' => 250.00,
                 'total_price' => 125000.00,
                 'country_origin' => 'Turkey',
                 'supplier_id' => $suppliers[1]->id,
@@ -137,12 +148,17 @@ class Release3DataSeeder extends Seeder
                 'created_by' => $user->id,
             ]);
 
+            OrderItem::create([
+                'order_id' => $order2->id,
+                'product_id' => $products[1]->id,
+                'quantity' => 500,
+                'price_per_unit' => 250.00,
+                'subtotal' => 125000.00,
+            ]);
+
             // Order 3: Pre-sold order (has client) - in transit
             $order3 = Order::create([
                 'order_number' => 'ORD-' . strtoupper(uniqid()),
-                'product_id' => $products[2]->id,
-                'quantity_expected' => 300,
-                'price_per_unit' => 180.00,
                 'total_price' => 54000.00,
                 'country_origin' => 'France',
                 'supplier_id' => $suppliers[0]->id,
@@ -155,12 +171,17 @@ class Release3DataSeeder extends Seeder
                 'created_by' => $user->id,
             ]);
 
+            OrderItem::create([
+                'order_id' => $order3->id,
+                'product_id' => $products[2]->id,
+                'quantity' => 300,
+                'price_per_unit' => 180.00,
+                'subtotal' => 54000.00,
+            ]);
+
             // Order 4: Received with perfect delivery
             $order4 = Order::create([
                 'order_number' => 'ORD-' . strtoupper(uniqid()),
-                'product_id' => $products[3]->id,
-                'quantity_expected' => 200,
-                'price_per_unit' => 320.00,
                 'total_price' => 64000.00,
                 'country_origin' => 'Germany',
                 'supplier_id' => $suppliers[2]->id,
@@ -173,12 +194,17 @@ class Release3DataSeeder extends Seeder
                 'created_by' => $user->id,
             ]);
 
+            OrderItem::create([
+                'order_id' => $order4->id,
+                'product_id' => $products[3]->id,
+                'quantity' => 200,
+                'price_per_unit' => 320.00,
+                'subtotal' => 64000.00,
+            ]);
+
             // Order 5: Received with discrepancies (missing items)
             $order5 = Order::create([
                 'order_number' => 'ORD-' . strtoupper(uniqid()),
-                'product_id' => $products[4]->id,
-                'quantity_expected' => 400,
-                'price_per_unit' => 95.00,
                 'total_price' => 38000.00,
                 'country_origin' => 'Italy',
                 'supplier_id' => $suppliers[1]->id,
@@ -191,12 +217,17 @@ class Release3DataSeeder extends Seeder
                 'created_by' => $user->id,
             ]);
 
+            $order5Item = OrderItem::create([
+                'order_id' => $order5->id,
+                'product_id' => $products[4]->id,
+                'quantity' => 400,
+                'price_per_unit' => 95.00,
+                'subtotal' => 38000.00,
+            ]);
+
             // Order 6: Overdue order (still in transit)
             $order6 = Order::create([
                 'order_number' => 'ORD-' . strtoupper(uniqid()),
-                'product_id' => $products[0]->id,
-                'quantity_expected' => 750,
-                'price_per_unit' => 140.00,
                 'total_price' => 105000.00,
                 'country_origin' => 'Spain',
                 'supplier_id' => $suppliers[0]->id,
@@ -207,6 +238,14 @@ class Release3DataSeeder extends Seeder
                 'status' => 'in_transit',
                 'notes' => 'Delayed at port - follow up needed',
                 'created_by' => $user->id,
+            ]);
+
+            OrderItem::create([
+                'order_id' => $order6->id,
+                'product_id' => $products[0]->id,
+                'quantity' => 750,
+                'price_per_unit' => 140.00,
+                'subtotal' => 105000.00,
             ]);
 
             $this->command->info('✓ Created 6 sample orders');
@@ -240,7 +279,7 @@ class Release3DataSeeder extends Seeder
             $this->command->info('Creating loss records...');
             $loss = Loss::create([
                 'order_id' => $order5->id,
-                'product_id' => $order5->product_id,
+                'product_id' => $order5Item->product_id,
                 'quantity_missing' => 25,
                 'loss_amount' => 25 * 95.00, // 2,375 DZD
                 'reason' => 'Damaged box during transit - insurance claim #INS-2025-0045',
@@ -254,7 +293,7 @@ class Release3DataSeeder extends Seeder
             // Order 4 stock update (Constantine hub)
             $stock4 = Stock::firstOrCreate(
                 [
-                    'product_id' => $order4->product_id,
+                    'product_id' => $order4->items->first()->product_id,
                     'stock_hub_id' => $order4->stock_hub_id,
                 ],
                 ['quantity' => 0]
@@ -264,7 +303,7 @@ class Release3DataSeeder extends Seeder
             // Order 5 stock update (Main Algiers hub) - only 375 received
             $stock5 = Stock::firstOrCreate(
                 [
-                    'product_id' => $order5->product_id,
+                    'product_id' => $order5Item->product_id,
                     'stock_hub_id' => $order5->stock_hub_id,
                 ],
                 ['quantity' => 0]

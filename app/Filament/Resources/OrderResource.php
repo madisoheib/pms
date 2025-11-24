@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\OrderResource\Pages;
 use App\Filament\Resources\OrderResource\RelationManagers;
 use App\Models\Order;
+use App\Models\Product;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -43,52 +44,81 @@ class OrderResource extends Resource
                             ->dehydrated(false)
                             ->placeholder(__('Auto-generated'))
                             ->helperText(__('Order number will be generated automatically')),
-                        Forms\Components\Select::make('product_id')
-                            ->relationship('product', 'name')
-                            ->searchable()
-                            ->preload()
-                            ->required()
-                            ->label(__('Product'))
-                            ->columnSpan(2),
                     ])
-                    ->columns(3),
+                    ->columns(1),
 
-                Forms\Components\Section::make(__('Quantity & Pricing'))
+                Forms\Components\Section::make(__('Order Items'))
                     ->schema([
-                        Forms\Components\TextInput::make('quantity_expected')
-                            ->required()
-                            ->numeric()
-                            ->minValue(1)
-                            ->label(__('Expected Quantity'))
-                            ->reactive()
-                            ->afterStateUpdated(function ($state, callable $set, callable $get) {
-                                $pricePerUnit = $get('price_per_unit');
-                                if ($state && $pricePerUnit) {
-                                    $set('total_price', $state * $pricePerUnit);
-                                }
-                            }),
-                        Forms\Components\TextInput::make('price_per_unit')
-                            ->required()
-                            ->numeric()
-                            ->minValue(0)
-                            ->label(__('Price per Unit'))
-                            ->prefix('DZD')
-                            ->reactive()
-                            ->afterStateUpdated(function ($state, callable $set, callable $get) {
-                                $quantity = $get('quantity_expected');
-                                if ($state && $quantity) {
-                                    $set('total_price', $state * $quantity);
-                                }
-                            }),
+                        Forms\Components\Repeater::make('items')
+                            ->relationship()
+                            ->schema([
+                                Forms\Components\Select::make('product_id')
+                                    ->options(fn () => Product::query()->pluck('name', 'id'))
+                                    ->searchable()
+                                    ->required()
+                                    ->label(__('Product'))
+                                    ->columnSpan(2)
+                                    ->live(),
+                                Forms\Components\TextInput::make('quantity')
+                                    ->required()
+                                    ->numeric()
+                                    ->minValue(1)
+                                    ->label(__('Quantity'))
+                                    ->live(onBlur: true)
+                                    ->afterStateUpdated(function ($state, callable $set, callable $get) {
+                                        $subtotal = $get('subtotal');
+                                        if ($state && $subtotal && $state > 0) {
+                                            $set('price_per_unit', $subtotal / $state);
+                                        }
+                                    }),
+                                Forms\Components\TextInput::make('subtotal')
+                                    ->required()
+                                    ->numeric()
+                                    ->minValue(0)
+                                    ->label(__('Total Price'))
+                                    ->prefix('DZD')
+                                    ->live(onBlur: true)
+                                    ->afterStateUpdated(function ($state, callable $set, callable $get) {
+                                        $quantity = $get('quantity');
+                                        if ($state && $quantity && $quantity > 0) {
+                                            $set('price_per_unit', $state / $quantity);
+                                        }
+                                    }),
+                                Forms\Components\TextInput::make('price_per_unit')
+                                    ->numeric()
+                                    ->label(__('Price per Unit'))
+                                    ->prefix('DZD')
+                                    ->disabled()
+                                    ->dehydrated()
+                                    ->helperText(__('Auto-calculated')),
+                                Forms\Components\Textarea::make('notes')
+                                    ->label(__('Item Notes'))
+                                    ->rows(2)
+                                    ->columnSpanFull(),
+                            ])
+                            ->columns(4)
+                            ->defaultItems(1)
+                            ->addActionLabel(__('Add Another Product'))
+                            ->collapsible()
+                            ->itemLabel(fn (array $state): ?string =>
+                                isset($state['product_id']) && $state['product_id']
+                                    ? Product::find($state['product_id'])?->name ?? __('Product Item')
+                                    : __('New Item')
+                            )
+                            ->columnSpanFull(),
+                    ]),
+
+                Forms\Components\Section::make(__('Order Total'))
+                    ->schema([
                         Forms\Components\TextInput::make('total_price')
                             ->required()
                             ->numeric()
                             ->label(__('Total Price'))
                             ->prefix('DZD')
-                            ->disabled()
-                            ->dehydrated(),
+                            ->helperText(__('Calculate total from all items'))
+                            ->columnSpanFull(),
                     ])
-                    ->columns(3),
+                    ->columns(1),
 
                 Forms\Components\Section::make(__('Transit & Delivery Details'))
                     ->schema([
@@ -162,11 +192,18 @@ class OrderResource extends Resource
                     ->weight('bold')
                     ->copyable()
                     ->copyMessage(__('Order number copied')),
-                Tables\Columns\TextColumn::make('product.name')
-                    ->label(__('Product'))
-                    ->searchable()
-                    ->sortable()
-                    ->description(fn (Order $record): string => $record->product->sku ?? ''),
+                Tables\Columns\TextColumn::make('items_count')
+                    ->label(__('Products'))
+                    ->counts('items')
+                    ->badge()
+                    ->color('info')
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('items.product.name')
+                    ->label(__('Product Names'))
+                    ->listWithLineBreaks()
+                    ->limitList(2)
+                    ->expandableLimitedList()
+                    ->searchable(),
                 Tables\Columns\TextColumn::make('status')
                     ->label(__('Status'))
                     ->badge()
@@ -179,10 +216,10 @@ class OrderResource extends Resource
                     })
                     ->formatStateUsing(fn (string $state): string => ucfirst(str_replace('_', ' ', $state)))
                     ->sortable(),
-                Tables\Columns\TextColumn::make('quantity_expected')
-                    ->label(__('Qty'))
+                Tables\Columns\TextColumn::make('items.quantity')
+                    ->label(__('Total Qty'))
+                    ->sum('items', 'quantity')
                     ->numeric()
-                    ->sortable()
                     ->alignCenter(),
                 Tables\Columns\TextColumn::make('total_price')
                     ->label(__('Total'))
@@ -235,11 +272,6 @@ class OrderResource extends Resource
                     ])
                     ->multiple()
                     ->label(__('Status')),
-                Tables\Filters\SelectFilter::make('product_id')
-                    ->relationship('product', 'name')
-                    ->searchable()
-                    ->preload()
-                    ->label(__('Product')),
                 Tables\Filters\SelectFilter::make('supplier_id')
                     ->relationship('supplier', 'name')
                     ->searchable()

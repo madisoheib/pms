@@ -20,44 +20,13 @@ class CreateOrder extends CreateRecord
     protected function getSteps(): array
     {
         return [
-            Wizard\Step::make('Product Selection')
-                ->description('Select the product for this order')
+            Wizard\Step::make('Products & Supplier')
+                ->description('Select products and supplier for this order')
                 ->icon('heroicon-o-cube')
                 ->schema([
-                    Forms\Components\Select::make('product_id')
-                        ->relationship('product', 'name')
-                        ->searchable()
-                        ->preload()
-                        ->required()
-                        ->label('Product')
-                        ->createOptionForm([
-                            Forms\Components\Section::make('Product Details')
-                                ->schema([
-                                    Forms\Components\TextInput::make('name')
-                                        ->required()
-                                        ->maxLength(255)
-                                        ->label('Product Name'),
-                                    Forms\Components\TextInput::make('sku')
-                                        ->label('SKU')
-                                        ->unique('products', 'sku')
-                                        ->maxLength(100),
-                                    Forms\Components\Select::make('category_id')
-                                        ->relationship('category', 'name')
-                                        ->required()
-                                        ->searchable()
-                                        ->preload()
-                                        ->label('Category'),
-                                    Forms\Components\Textarea::make('description')
-                                        ->rows(3)
-                                        ->columnSpanFull(),
-                                ])
-                                ->columns(2),
-                        ])
-                        ->helperText('Select an existing product or create a new one'),
                     Forms\Components\Select::make('supplier_id')
-                        ->relationship('supplier', 'name')
+                        ->options(fn () => \App\Models\Supplier::query()->pluck('name', 'id'))
                         ->searchable()
-                        ->preload()
                         ->required()
                         ->label('Supplier')
                         ->createOptionForm([
@@ -73,51 +42,79 @@ class CreateOrder extends CreateRecord
                             Forms\Components\Textarea::make('address')
                                 ->rows(2),
                         ])
-                        ->helperText('Who is supplying this product?'),
-                ])
-                ->columns(1),
+                        ->helperText('Who is supplying these products?'),
 
-            Wizard\Step::make('Transit Details')
-                ->description('Specify quantity, pricing, and delivery information')
-                ->icon('heroicon-o-truck')
-                ->schema([
-                    Forms\Components\Section::make('Quantity & Pricing')
+                    Forms\Components\Repeater::make('items')
+                        ->label('Order Items')
                         ->schema([
-                            Forms\Components\TextInput::make('quantity_expected')
+                            Forms\Components\Select::make('product_id')
+                                ->options(fn () => \App\Models\Product::query()->pluck('name', 'id'))
+                                ->searchable()
+                                ->required()
+                                ->label('Product')
+                                ->columnSpan(2)
+                                ->live(),
+                            Forms\Components\TextInput::make('quantity')
                                 ->required()
                                 ->numeric()
                                 ->minValue(1)
-                                ->label('Expected Quantity')
-                                ->reactive()
+                                ->label('Quantity')
+                                ->live(onBlur: true)
                                 ->afterStateUpdated(function ($state, callable $set, callable $get) {
-                                    $pricePerUnit = $get('price_per_unit');
-                                    if ($state && $pricePerUnit) {
-                                        $set('total_price', $state * $pricePerUnit);
+                                    $subtotal = $get('subtotal');
+                                    if ($state && $subtotal && $state > 0) {
+                                        $set('price_per_unit', $subtotal / $state);
                                     }
                                 }),
-                            Forms\Components\TextInput::make('price_per_unit')
+                            Forms\Components\TextInput::make('subtotal')
                                 ->required()
                                 ->numeric()
                                 ->minValue(0)
-                                ->label('Price per Unit')
+                                ->label('Total Price')
                                 ->prefix('DZD')
-                                ->reactive()
+                                ->live(onBlur: true)
                                 ->afterStateUpdated(function ($state, callable $set, callable $get) {
-                                    $quantity = $get('quantity_expected');
-                                    if ($state && $quantity) {
-                                        $set('total_price', $state * $quantity);
+                                    $quantity = $get('quantity');
+                                    if ($state && $quantity && $quantity > 0) {
+                                        $set('price_per_unit', $state / $quantity);
                                     }
                                 }),
+                            Forms\Components\TextInput::make('price_per_unit')
+                                ->numeric()
+                                ->label('Price per Unit')
+                                ->prefix('DZD')
+                                ->disabled()
+                                ->dehydrated()
+                                ->helperText('Auto-calculated'),
+                        ])
+                        ->columns(4)
+                        ->defaultItems(1)
+                        ->addActionLabel('Add Another Product')
+                        ->collapsible()
+                        ->itemLabel(fn (array $state): ?string =>
+                            isset($state['product_id']) && $state['product_id']
+                                ? \App\Models\Product::find($state['product_id'])?->name ?? 'Product Item'
+                                : 'New Item'
+                        )
+                        ->columnSpanFull(),
+                ])
+                ->columns(1),
+
+            Wizard\Step::make('Transit & Delivery')
+                ->description('Specify delivery information and client assignment')
+                ->icon('heroicon-o-truck')
+                ->schema([
+                    Forms\Components\Section::make('Order Total')
+                        ->schema([
                             Forms\Components\TextInput::make('total_price')
                                 ->required()
                                 ->numeric()
                                 ->label('Total Price')
                                 ->prefix('DZD')
-                                ->disabled()
-                                ->dehydrated()
-                                ->helperText('Calculated automatically'),
+                                ->helperText('Enter the total order amount')
+                                ->columnSpanFull(),
                         ])
-                        ->columns(3),
+                        ->columns(1),
 
                     Forms\Components\Section::make('Delivery Information')
                         ->schema([
@@ -131,9 +128,8 @@ class CreateOrder extends CreateRecord
                                 ->minDate(now())
                                 ->helperText('When do you expect this shipment to arrive?'),
                             Forms\Components\Select::make('stock_hub_id')
-                                ->relationship('stockHub', 'name')
+                                ->options(fn () => \App\Models\StockHub::query()->pluck('name', 'id'))
                                 ->searchable()
-                                ->preload()
                                 ->required()
                                 ->label('Destination Hub')
                                 ->helperText('Where will this order be received?'),
@@ -144,9 +140,8 @@ class CreateOrder extends CreateRecord
                         ->description('Assign a client if this is a pre-sold order')
                         ->schema([
                             Forms\Components\Select::make('client_id')
-                                ->relationship('client', 'name')
+                                ->options(fn () => \App\Models\Client::query()->pluck('name', 'id'))
                                 ->searchable()
-                                ->preload()
                                 ->label('Client')
                                 ->createOptionForm([
                                     Forms\Components\TextInput::make('name')
@@ -275,16 +270,35 @@ class CreateOrder extends CreateRecord
                 ->schema([
                     Forms\Components\Section::make('Order Summary')
                         ->schema([
-                            Forms\Components\Placeholder::make('review_product')
-                                ->label('Product')
+                            Forms\Components\Placeholder::make('review_items')
+                                ->label('Products')
                                 ->content(function (callable $get) {
-                                    $productId = $get('product_id');
-                                    if (!$productId) {
-                                        return 'N/A';
+                                    $items = $get('items');
+                                    if (!$items || count($items) === 0) {
+                                        return 'No items';
                                     }
-                                    $product = \App\Models\Product::find($productId);
-                                    return $product ? $product->name : 'N/A';
-                                }),
+
+                                    $html = '<ul class="space-y-1">';
+                                    foreach ($items as $item) {
+                                        $product = \App\Models\Product::find($item['product_id'] ?? null);
+                                        $productName = $product?->name ?? 'Unknown';
+                                        $quantity = $item['quantity'] ?? 0;
+                                        $price = $item['price_per_unit'] ?? 0;
+                                        $subtotal = $item['subtotal'] ?? 0;
+
+                                        $html .= sprintf(
+                                            '<li>%s - Qty: %s × %s DZD = <strong>%s DZD</strong></li>',
+                                            $productName,
+                                            number_format($quantity),
+                                            number_format($price, 2),
+                                            number_format($subtotal, 2)
+                                        );
+                                    }
+                                    $html .= '</ul>';
+
+                                    return new \Illuminate\Support\HtmlString($html);
+                                })
+                                ->columnSpanFull(),
                             Forms\Components\Placeholder::make('review_supplier')
                                 ->label('Supplier')
                                 ->content(function (callable $get) {
@@ -294,15 +308,6 @@ class CreateOrder extends CreateRecord
                                     }
                                     $supplier = \App\Models\Supplier::find($supplierId);
                                     return $supplier ? $supplier->name : 'N/A';
-                                }),
-                            Forms\Components\Placeholder::make('review_quantity')
-                                ->label('Quantity')
-                                ->content(fn (callable $get) => $get('quantity_expected') ?? 'N/A'),
-                            Forms\Components\Placeholder::make('review_price_per_unit')
-                                ->label('Price per Unit')
-                                ->content(function (callable $get) {
-                                    $price = $get('price_per_unit');
-                                    return $price ? number_format($price, 2) . ' DZD' : 'N/A';
                                 }),
                             Forms\Components\Placeholder::make('review_total')
                                 ->label('Total Price')
@@ -352,7 +357,7 @@ class CreateOrder extends CreateRecord
                                     return $wallet ? $wallet->name : 'N/A';
                                 }),
                         ])
-                        ->columns(3),
+                        ->columns(2),
                 ]),
         ];
     }
@@ -362,12 +367,34 @@ class CreateOrder extends CreateRecord
         $data['created_by'] = Auth::id();
         $data['status'] = 'pending';
 
+        // Extract items to save separately
+        $items = $data['items'] ?? [];
+        unset($data['items']);
+
+        // Store items temporarily for afterCreate
+        $this->orderItems = $items;
+
         return $data;
     }
+
+    protected array $orderItems = [];
 
     protected function afterCreate(): void
     {
         $order = $this->record;
+
+        // Create order items
+        if (!empty($this->orderItems)) {
+            foreach ($this->orderItems as $item) {
+                $order->items()->create([
+                    'product_id' => $item['product_id'],
+                    'quantity' => $item['quantity'],
+                    'price_per_unit' => $item['price_per_unit'],
+                    'subtotal' => $item['subtotal'],
+                    'notes' => $item['notes'] ?? null,
+                ]);
+            }
+        }
 
         // Debit the wallet
         if ($order->wallet_id && $order->total_price) {
