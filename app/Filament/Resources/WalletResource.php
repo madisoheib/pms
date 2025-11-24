@@ -5,6 +5,8 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\WalletResource\Pages;
 use App\Filament\Resources\WalletResource\RelationManagers;
 use App\Models\Wallet;
+use App\Models\ExchangeRate;
+use App\Models\WalletTransfer;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -12,6 +14,9 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Filament\Notifications\Notification;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
 
 class WalletResource extends Resource
 {
@@ -147,6 +152,186 @@ class WalletResource extends Resource
                     ->toggle(),
             ])
             ->actions([
+                Tables\Actions\Action::make('transfer')
+                    ->label('Transfer')
+                    ->icon('heroicon-o-arrow-right-circle')
+                    ->color('primary')
+                    ->form([
+                        Forms\Components\Section::make('Transfer Details')
+                            ->schema([
+                                Forms\Components\Select::make('to_wallet_id')
+                                    ->label('To Wallet')
+                                    ->options(function ($record) {
+                                        return Wallet::where('id', '!=', $record->id)
+                                            ->where('is_active', true)
+                                            ->get()
+                                            ->mapWithKeys(fn($wallet) => [
+                                                $wallet->id => $wallet->name . ' (' . $wallet->currency . ') - Balance: ' . number_format($wallet->balance, 2)
+                                            ]);
+                                    })
+                                    ->required()
+                                    ->searchable()
+                                    ->native(false)
+                                    ->live()
+                                    ->afterStateUpdated(function (Get $get, Set $set) {
+                                        $amount = $get('from_amount');
+                                        $toWalletId = $get('to_wallet_id');
+                                        if ($amount && $toWalletId) {
+                                            $fromWallet = Wallet::find($get('from_wallet_id'));
+                                            $toWallet = Wallet::find($toWalletId);
+                                            if ($fromWallet && $toWallet) {
+                                                $rate = ExchangeRate::getRate($fromWallet->currency, $toWallet->currency);
+                                                if ($rate) {
+                                                    $set('exchange_rate', $rate);
+                                                    $set('to_amount', round($amount * $rate, 2));
+                                                }
+                                            }
+                                        }
+                                    }),
+                                Forms\Components\Hidden::make('from_wallet_id')
+                                    ->default(fn ($record) => $record->id),
+                            ]),
+
+                        Forms\Components\Section::make('Amount')
+                            ->schema([
+                                Forms\Components\TextInput::make('from_amount')
+                                    ->label(fn ($record) => 'Amount to Transfer (' . $record->currency . ')')
+                                    ->required()
+                                    ->numeric()
+                                    ->minValue(0.01)
+                                    ->maxValue(fn ($record) => $record->balance)
+                                    ->step(0.01)
+                                    ->live(onBlur: true)
+                                    ->afterStateUpdated(function (Get $get, Set $set, $state) {
+                                        $toWalletId = $get('to_wallet_id');
+                                        if ($state && $toWalletId) {
+                                            $fromWallet = Wallet::find($get('from_wallet_id'));
+                                            $toWallet = Wallet::find($toWalletId);
+                                            if ($fromWallet && $toWallet) {
+                                                $rate = ExchangeRate::getRate($fromWallet->currency, $toWallet->currency);
+                                                if ($rate) {
+                                                    $set('exchange_rate', $rate);
+                                                    $set('to_amount', round($state * $rate, 2));
+                                                } else {
+                                                    $set('exchange_rate', null);
+                                                    $set('to_amount', null);
+                                                }
+                                            }
+                                        }
+                                    })
+                                    ->helperText(fn ($record) => 'Available balance: ' . number_format($record->balance, 2) . ' ' . $record->currency),
+                            ]),
+
+                        Forms\Components\Section::make('Exchange Rate & Conversion')
+                            ->schema([
+                                Forms\Components\Placeholder::make('exchange_rate_display')
+                                    ->label('Exchange Rate')
+                                    ->content(function (Get $get) {
+                                        $rate = $get('exchange_rate');
+                                        $fromWallet = Wallet::find($get('from_wallet_id'));
+                                        $toWallet = Wallet::find($get('to_wallet_id'));
+
+                                        if (!$rate || !$fromWallet || !$toWallet) {
+                                            return 'Select destination wallet to see exchange rate';
+                                        }
+
+                                        if ($fromWallet->currency === $toWallet->currency) {
+                                            return '1.00 (Same currency)';
+                                        }
+
+                                        return number_format($rate, 8) . ' (1 ' . $fromWallet->currency . ' = ' . number_format($rate, 8) . ' ' . $toWallet->currency . ')';
+                                    }),
+                                Forms\Components\Hidden::make('exchange_rate'),
+                                Forms\Components\Placeholder::make('to_amount_display')
+                                    ->label('Amount to be Credited')
+                                    ->content(function (Get $get) {
+                                        $toAmount = $get('to_amount');
+                                        $toWallet = Wallet::find($get('to_wallet_id'));
+
+                                        if (!$toAmount || !$toWallet) {
+                                            return 'Enter amount to see converted value';
+                                        }
+
+                                        return number_format($toAmount, 2) . ' ' . $toWallet->currency;
+                                    }),
+                                Forms\Components\Hidden::make('to_amount'),
+                            ])
+                            ->visible(fn (Get $get) => $get('to_wallet_id') !== null),
+
+                        Forms\Components\Section::make('Additional Information')
+                            ->schema([
+                                Forms\Components\Textarea::make('description')
+                                    ->label('Description')
+                                    ->rows(3)
+                                    ->placeholder('Optional: Add a note about this transfer'),
+                            ]),
+                    ])
+                    ->action(function (array $data, $record) {
+                        $fromWallet = $record;
+                        $toWallet = Wallet::find($data['to_wallet_id']);
+
+                        // Validate balance
+                        if ($fromWallet->balance < $data['from_amount']) {
+                            Notification::make()
+                                ->danger()
+                                ->title('Insufficient Balance')
+                                ->body('The source wallet does not have enough balance for this transfer.')
+                                ->send();
+                            return;
+                        }
+
+                        // Get or calculate exchange rate
+                        $rate = ExchangeRate::getRate($fromWallet->currency, $toWallet->currency);
+                        if (!$rate && $fromWallet->currency !== $toWallet->currency) {
+                            Notification::make()
+                                ->danger()
+                                ->title('Exchange Rate Not Found')
+                                ->body('No active exchange rate found for ' . $fromWallet->currency . ' to ' . $toWallet->currency)
+                                ->send();
+                            return;
+                        }
+
+                        // Calculate converted amount
+                        $toAmount = $data['to_amount'] ?? ExchangeRate::convert($data['from_amount'], $fromWallet->currency, $toWallet->currency);
+
+                        // Create transfer record
+                        $transfer = WalletTransfer::create([
+                            'from_wallet_id' => $fromWallet->id,
+                            'from_amount' => $data['from_amount'],
+                            'from_currency' => $fromWallet->currency,
+                            'to_wallet_id' => $toWallet->id,
+                            'to_amount' => $toAmount,
+                            'to_currency' => $toWallet->currency,
+                            'exchange_rate' => $rate,
+                            'exchange_rate_id' => ExchangeRate::where('from_currency', $fromWallet->currency)
+                                ->where('to_currency', $toWallet->currency)
+                                ->where('is_active', true)
+                                ->first()?->id,
+                            'description' => $data['description'] ?? null,
+                            'status' => 'pending',
+                            'created_by' => auth()->id(),
+                        ]);
+
+                        // Auto-approve and execute transfer
+                        try {
+                            $transfer->approve(auth()->id());
+
+                            Notification::make()
+                                ->success()
+                                ->title('Transfer Completed')
+                                ->body('Successfully transferred ' . number_format($data['from_amount'], 2) . ' ' . $fromWallet->currency . ' to ' . $toWallet->name)
+                                ->send();
+                        } catch (\Exception $e) {
+                            Notification::make()
+                                ->danger()
+                                ->title('Transfer Failed')
+                                ->body($e->getMessage())
+                                ->send();
+                        }
+                    })
+                    ->modalWidth('3xl')
+                    ->modalHeading(fn ($record) => 'Transfer from ' . $record->name)
+                    ->modalSubmitActionLabel('Transfer'),
                 Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
                 Tables\Actions\DeleteAction::make(),
