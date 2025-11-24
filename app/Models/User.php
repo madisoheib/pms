@@ -7,10 +7,11 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
+use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable implements FilamentUser
 {
-    use HasFactory, Notifiable;
+    use HasFactory, Notifiable, HasRoles;
 
     /**
      * The attributes that are mass assignable.
@@ -52,7 +53,8 @@ class User extends Authenticatable implements FilamentUser
      */
     public function canAccessPanel(Panel $panel): bool
     {
-        return true; // You can add role-based logic here later
+        // Allow users with any of these roles to access the panel
+        return $this->hasAnyRole(['super_admin', 'admin', 'stock_agent', 'view_only']);
     }
 
     /**
@@ -60,7 +62,15 @@ class User extends Authenticatable implements FilamentUser
      */
     public function isAdmin(): bool
     {
-        return $this->role === 'admin' || $this->role === 'super_admin';
+        return $this->hasRole(['admin', 'super_admin']);
+    }
+
+    /**
+     * Check if user is super admin
+     */
+    public function isSuperAdmin(): bool
+    {
+        return $this->hasRole('super_admin');
     }
 
     /**
@@ -68,6 +78,6 @@ class User extends Authenticatable implements FilamentUser
      */
     public function isStockAgent(): bool
     {
-        return $this->role === 'stock_agent';
+        return $this->hasRole('stock_agent');
     }
 }
