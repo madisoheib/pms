@@ -2,9 +2,9 @@
 
 namespace App\Filament\Pages;
 
-use Filament\Pages\Page;
+use Filament\Pages\Dashboard as BaseDashboard;
 
-class Dashboard extends Page
+class Dashboard extends BaseDashboard
 {
     protected static ?string $navigationIcon = 'heroicon-o-home';
 
@@ -25,5 +25,10 @@ class Dashboard extends Page
     public function getHeading(): string
     {
         return __('Welcome to PSM');
+    }
+
+    public function getWidgets(): array
+    {
+        return [];
     }
 }
