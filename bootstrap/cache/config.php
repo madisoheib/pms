@@ -576,7 +576,7 @@
   ),
   'cache' => 
   array (
-    'default' => 'redis',
+    'default' => 'file',
     'stores' => 
     array (
       'array' => 
