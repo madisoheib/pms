@@ -21,7 +21,7 @@ class RoleResource extends Resource
 
     public static function getNavigationGroup(): ?string
     {
-        return __('User Management');
+        return __('Credentials');
     }
 
     public static function form(Form $form): Form

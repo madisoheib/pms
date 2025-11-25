@@ -23,7 +23,7 @@ class LossResource extends Resource
 
     public static function getNavigationGroup(): ?string
     {
-        return __('Orders & Transit');
+        return __('Inventory');
     }
 
     public static function getNavigationLabel(): string

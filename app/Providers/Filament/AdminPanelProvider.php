@@ -33,15 +33,14 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
-            ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
             ->pages([
                 Pages\Dashboard::class,
             ])
             ->widgets([
-                \App\Filament\Widgets\WelcomeWidget::class,
-                \App\Filament\Widgets\StatsOverviewWidget::class,
                 Widgets\AccountWidget::class,
             ])
+            ->navigation(false)
+            ->topNavigation()
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,

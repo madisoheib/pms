@@ -12,6 +12,7 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class OrderResource extends Resource
@@ -52,51 +53,252 @@ class OrderResource extends Resource
                         Forms\Components\Repeater::make('items')
                             ->relationship()
                             ->schema([
-                                Forms\Components\Select::make('product_id')
-                                    ->options(fn () => Product::query()->pluck('name', 'id'))
-                                    ->searchable()
-                                    ->required()
-                                    ->label(__('Product'))
-                                    ->columnSpan(2)
-                                    ->live(),
-                                Forms\Components\TextInput::make('quantity')
-                                    ->required()
-                                    ->numeric()
-                                    ->minValue(1)
-                                    ->label(__('Quantity'))
-                                    ->live(onBlur: true)
-                                    ->afterStateUpdated(function ($state, callable $set, callable $get) {
-                                        $subtotal = $get('subtotal');
-                                        if ($state && $subtotal && $state > 0) {
-                                            $set('price_per_unit', $subtotal / $state);
-                                        }
-                                    }),
-                                Forms\Components\TextInput::make('subtotal')
-                                    ->required()
-                                    ->numeric()
-                                    ->minValue(0)
-                                    ->label(__('Total Price'))
-                                    ->prefix('DZD')
-                                    ->live(onBlur: true)
-                                    ->afterStateUpdated(function ($state, callable $set, callable $get) {
-                                        $quantity = $get('quantity');
-                                        if ($state && $quantity && $quantity > 0) {
-                                            $set('price_per_unit', $state / $quantity);
-                                        }
-                                    }),
-                                Forms\Components\TextInput::make('price_per_unit')
-                                    ->numeric()
-                                    ->label(__('Price per Unit'))
-                                    ->prefix('DZD')
-                                    ->disabled()
-                                    ->dehydrated()
-                                    ->helperText(__('Auto-calculated')),
-                                Forms\Components\Textarea::make('notes')
-                                    ->label(__('Item Notes'))
-                                    ->rows(2)
-                                    ->columnSpanFull(),
+                                Forms\Components\Grid::make(12)
+                                    ->schema([
+                                        // Product Selection with Photo
+                                        Forms\Components\Select::make('product_id')
+                                            ->options(function () {
+                                                return Product::query()
+                                                    ->with('category')
+                                                    ->get()
+                                                    ->mapWithKeys(function ($product) {
+                                                        return [$product->id => $product->name . ' (' . $product->sku . ')'];
+                                                    });
+                                            })
+                                            ->searchable()
+                                            ->required()
+                                            ->label(__('Product'))
+                                            ->helperText(__('Select a product or create a new one'))
+                                            ->reactive()
+                                            ->afterStateUpdated(function ($state, callable $set) {
+                                                if ($state) {
+                                                    $product = Product::find($state);
+                                                    if ($product) {
+                                                        $set('product_details', $product);
+                                                    }
+                                                }
+                                            })
+                                            ->createOptionForm([
+                                                Forms\Components\TextInput::make('name')
+                                                    ->required()
+                                                    ->maxLength(255)
+                                                    ->label(__('Product Name')),
+                                                Forms\Components\TextInput::make('sku')
+                                                    ->label(__('SKU'))
+                                                    ->default(function () {
+                                                        $lastProduct = Product::orderBy('id', 'desc')->first();
+                                                        $nextId = $lastProduct ? $lastProduct->id + 1 : 1;
+                                                        return sprintf('PRD-%s-%05d', date('Y'), $nextId);
+                                                    })
+                                                    ->required(),
+                                                Forms\Components\FileUpload::make('photo_path')
+                                                    ->label(__('Product Photo'))
+                                                    ->image()
+                                                    ->imageEditor()
+                                                    ->directory('products')
+                                                    ->visibility('public'),
+                                                Forms\Components\TextInput::make('price_per_unit')
+                                                    ->label(__('Price'))
+                                                    ->numeric()
+                                                    ->prefix('DZD')
+                                                    ->default(0)
+                                                    ->required(),
+                                                Forms\Components\TextInput::make('stock_quantity')
+                                                    ->label(__('Initial Stock'))
+                                                    ->numeric()
+                                                    ->default(0)
+                                                    ->required(),
+                                                Forms\Components\Select::make('category_id')
+                                                    ->label(__('Category'))
+                                                    ->relationship('category', 'name')
+                                                    ->createOptionForm([
+                                                        Forms\Components\TextInput::make('name')
+                                                            ->required()
+                                                            ->label(__('Category Name')),
+                                                    ]),
+                                                Forms\Components\Select::make('country_origin')
+                                                    ->label(__('Origin'))
+                                                    ->options([
+                                                        'China' => 'China',
+                                                        'Turkey' => 'Turkey',
+                                                        'UAE' => 'UAE',
+                                                        'Algeria' => 'Algeria',
+                                                        'Other' => 'Other',
+                                                    ]),
+                                            ])
+                                            ->createOptionAction(function (Forms\Components\Actions\Action $action) {
+                                                return $action
+                                                    ->modalHeading(__('Create New Product'))
+                                                    ->modalWidth('lg')
+                                                    ->modalButton(__('Create Product'));
+                                            })
+                                            ->columnSpan(4),
+
+                                        // Product Photo Display
+                                        Forms\Components\Placeholder::make('product_photo')
+                                            ->label(__('Product Photo'))
+                                            ->content(function ($get) {
+                                                $productId = $get('product_id');
+                                                if (!$productId) {
+                                                    return new \Illuminate\Support\HtmlString('<div class="text-center text-gray-500 py-4">Select a product to see photo</div>');
+                                                }
+
+                                                $product = Product::find($productId);
+                                                if ($product && $product->photo_path) {
+                                                    $photoUrl = \Storage::url($product->photo_path);
+                                                    return new \Illuminate\Support\HtmlString('
+                                                        <div class="text-center">
+                                                            <img src="' . $photoUrl . '" alt="' . e($product->name) . '" class="w-20 h-20 object-cover rounded-lg mx-auto" />
+                                                            <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">' . e($product->name) . '</p>
+                                                        </div>
+                                                    ');
+                                                } else {
+                                                    return new \Illuminate\Support\HtmlString('
+                                                        <div class="text-center">
+                                                            <img src="/images/placeholder.svg" alt="No image" class="w-20 h-20 object-cover rounded-lg mx-auto" />
+                                                            <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">No photo</p>
+                                                        </div>
+                                                    ');
+                                                }
+                                            })
+                                            ->columnSpan(2),
+
+                                        // Product QR Code
+                                        Forms\Components\Placeholder::make('product_qr')
+                                            ->label(__('QR Code'))
+                                            ->content(function ($get) {
+                                                $productId = $get('product_id');
+                                                if (!$productId) {
+                                                    return new \Illuminate\Support\HtmlString('<div class="text-center text-gray-500 py-4">Select a product to see QR</div>');
+                                                }
+
+                                                $product = Product::find($productId);
+                                                if ($product) {
+                                                    $qrData = json_encode([
+                                                        'id' => $product->id,
+                                                        'sku' => $product->sku,
+                                                        'name' => $product->name,
+                                                        'price' => $product->price_per_unit,
+                                                    ]);
+
+                                                    $qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=' . urlencode($qrData);
+
+                                                    return new \Illuminate\Support\HtmlString('
+                                                        <div class="text-center">
+                                                            <img src="' . $qrUrl . '" alt="QR Code" class="mx-auto" />
+                                                            <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">SKU: ' . e($product->sku) . '</p>
+                                                        </div>
+                                                    ');
+                                                }
+
+                                                return '';
+                                            })
+                                            ->columnSpan(2),
+
+                                        // Quantity and Price Fields
+                                        Forms\Components\TextInput::make('quantity')
+                                            ->required()
+                                            ->numeric()
+                                            ->minValue(1)
+                                            ->label(__('Quantity'))
+                                            ->live(onBlur: true)
+                                            ->afterStateUpdated(function ($state, callable $set, callable $get) {
+                                                $subtotal = $get('subtotal');
+                                                if ($state && $subtotal && $state > 0) {
+                                                    $set('price_per_unit', $subtotal / $state);
+                                                }
+                                            })
+                                            ->columnSpan(2),
+
+                                        Forms\Components\TextInput::make('subtotal')
+                                            ->required()
+                                            ->numeric()
+                                            ->minValue(0)
+                                            ->label(__('Total Price'))
+                                            ->prefix('DZD')
+                                            ->live(onBlur: true)
+                                            ->afterStateUpdated(function ($state, callable $set, callable $get) {
+                                                $quantity = $get('quantity');
+                                                if ($state && $quantity && $quantity > 0) {
+                                                    $set('price_per_unit', $state / $quantity);
+                                                }
+                                            })
+                                            ->columnSpan(2),
+
+                                        Forms\Components\TextInput::make('price_per_unit')
+                                            ->numeric()
+                                            ->label(__('Price per Unit'))
+                                            ->prefix('DZD')
+                                            ->disabled()
+                                            ->dehydrated()
+                                            ->helperText(__('Auto-calculated'))
+                                            ->columnSpan(2),
+
+                                        // Product Details Display
+                                        Forms\Components\Placeholder::make('product_info')
+                                            ->label(__('Product Details'))
+                                            ->content(function ($get) {
+                                                $productId = $get('product_id');
+                                                if (!$productId) {
+                                                    return '';
+                                                }
+
+                                                $product = Product::find($productId);
+                                                if ($product) {
+                                                    return new \Illuminate\Support\HtmlString('
+                                                        <div class="space-y-1 text-sm">
+                                                            <p><span class="font-medium">Stock:</span> ' . $product->stock_quantity . ' units</p>
+                                                            <p><span class="font-medium">Category:</span> ' . ($product->category?->name ?? 'N/A') . '</p>
+                                                            <p><span class="font-medium">Origin:</span> ' . ($product->country_origin ?? 'N/A') . '</p>
+                                                        </div>
+                                                    ');
+                                                }
+
+                                                return '';
+                                            })
+                                            ->columnSpan(6),
+
+                                        Forms\Components\Textarea::make('notes')
+                                            ->label(__('Item Notes'))
+                                            ->rows(2)
+                                            ->columnSpan(6),
+
+                                        // Upload Product Photo Section
+                                        Forms\Components\Section::make(__('Upload Product Photo'))
+                                            ->description(__('Upload a new photo for this product'))
+                                            ->schema([
+                                                Forms\Components\FileUpload::make('temp_product_photo')
+                                                    ->label(__('New Product Photo'))
+                                                    ->image()
+                                                    ->imageEditor()
+                                                    ->directory('products')
+                                                    ->visibility('public')
+                                                    ->helperText(__('Upload to update product photo'))
+                                                    ->afterStateUpdated(function ($state, callable $set, $get) {
+                                                        if ($state && $get('product_id')) {
+                                                            $product = Product::find($get('product_id'));
+                                                            if ($product) {
+                                                                // Delete old photo if exists
+                                                                if ($product->photo_path) {
+                                                                    \Storage::delete($product->photo_path);
+                                                                }
+                                                                // Update product with new photo
+                                                                $product->update(['photo_path' => $state]);
+
+                                                                \Filament\Notifications\Notification::make()
+                                                                    ->title(__('Photo updated'))
+                                                                    ->body(__('Product photo has been updated successfully'))
+                                                                    ->success()
+                                                                    ->send();
+                                                            }
+                                                        }
+                                                    })
+                                                    ->visible(fn ($get) => !empty($get('product_id')))
+                                            ])
+                                            ->collapsed()
+                                            ->columnSpan(12),
+                                    ]),
                             ])
-                            ->columns(4)
                             ->defaultItems(1)
                             ->addActionLabel(__('Add Another Product'))
                             ->collapsible()
@@ -192,12 +394,19 @@ class OrderResource extends Resource
                     ->weight('bold')
                     ->copyable()
                     ->copyMessage(__('Order number copied')),
-                Tables\Columns\TextColumn::make('items_count')
+
+                // Product Photos Column
+                Tables\Columns\ViewColumn::make('product_images')
                     ->label(__('Products'))
+                    ->view('filament.tables.columns.order-products'),
+
+                Tables\Columns\TextColumn::make('items_count')
+                    ->label(__('Qty'))
                     ->counts('items')
                     ->badge()
                     ->color('info')
                     ->sortable(),
+
                 Tables\Columns\TextColumn::make('items.product.name')
                     ->label(__('Product Names'))
                     ->listWithLineBreaks()

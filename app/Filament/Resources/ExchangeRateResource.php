@@ -23,6 +23,21 @@ class ExchangeRateResource extends Resource
 
     protected static ?int $navigationSort = 3;
 
+    public static function getNavigationLabel(): string
+    {
+        return __('Transfer Money');
+    }
+
+    public static function getModelLabel(): string
+    {
+        return __('Transfer');
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return __('Transfers');
+    }
+
     public static function form(Form $form): Form
     {
         return $form

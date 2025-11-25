@@ -64,32 +64,39 @@ class ViewOrder extends ViewRecord
                     ])
                     ->columns(3),
 
-                Infolists\Components\Section::make('Product Details')
+                Infolists\Components\Section::make('Order Items')
                     ->schema([
-                        Infolists\Components\TextEntry::make('product.name')
-                            ->label('Product'),
-                        Infolists\Components\TextEntry::make('product.sku')
-                            ->label('SKU'),
-                        Infolists\Components\TextEntry::make('product.category.name')
-                            ->label('Category'),
-                    ])
-                    ->columns(3),
+                        Infolists\Components\RepeatableEntry::make('items')
+                            ->label('')
+                            ->schema([
+                                Infolists\Components\TextEntry::make('product.name')
+                                    ->label('Product'),
+                                Infolists\Components\TextEntry::make('product.sku')
+                                    ->label('SKU'),
+                                Infolists\Components\TextEntry::make('quantity')
+                                    ->label('Quantity')
+                                    ->numeric(),
+                                Infolists\Components\TextEntry::make('price_per_unit')
+                                    ->label('Price per Unit')
+                                    ->money('DZD'),
+                                Infolists\Components\TextEntry::make('subtotal')
+                                    ->label('Subtotal')
+                                    ->money('DZD')
+                                    ->weight('bold'),
+                            ])
+                            ->columns(5)
+                            ->columnSpanFull(),
+                    ]),
 
-                Infolists\Components\Section::make('Quantity & Pricing')
+                Infolists\Components\Section::make('Order Total')
                     ->schema([
-                        Infolists\Components\TextEntry::make('quantity_expected')
-                            ->label('Expected Quantity')
-                            ->numeric(),
-                        Infolists\Components\TextEntry::make('price_per_unit')
-                            ->label('Price per Unit')
-                            ->money('DZD'),
                         Infolists\Components\TextEntry::make('total_price')
                             ->label('Total Price')
                             ->money('DZD')
                             ->weight('bold')
                             ->size('lg'),
                     ])
-                    ->columns(3),
+                    ->columns(1),
 
                 Infolists\Components\Section::make('Transit & Delivery')
                     ->schema([

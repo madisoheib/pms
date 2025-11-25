@@ -30,94 +30,159 @@ class ProductResource extends Resource
     {
         return $form
             ->schema([
-                Forms\Components\Section::make(__('Product Information'))
+                Forms\Components\Grid::make()
                     ->schema([
-                        Forms\Components\TextInput::make('name')
-                            ->required()
-                            ->maxLength(255)
-                            ->label(__('Name'))
-                            ->autocomplete(false)
-                            ->columnSpan(2),
-                        Forms\Components\TextInput::make('sku')
-                            ->label(__('SKU'))
-                            ->unique(ignoreRecord: true)
-                            ->maxLength(255)
-                            ->placeholder(__('Auto-generated if empty'))
-                            ->helperText(__('Leave blank to auto-generate')),
-                        Forms\Components\Select::make('category_id')
-                            ->relationship('category', 'name')
-                            ->searchable()
-                            ->preload()
-                            ->label(__('Category'))
-                            ->createOptionForm([
-                                Forms\Components\TextInput::make('name')
-                                    ->required()
-                                    ->maxLength(255)
-                                    ->label(__('Name')),
-                                Forms\Components\Textarea::make('description')
-                                    ->rows(3)
-                                    ->label(__('Description')),
-                            ]),
-                        Forms\Components\FileUpload::make('photo_path')
-                            ->label(__('Product Image'))
-                            ->image()
-                            ->imageEditor()
-                            ->directory('products')
-                            ->visibility('public')
-                            ->columnSpanFull(),
-                        Forms\Components\Textarea::make('description')
-                            ->label(__('Description'))
-                            ->rows(4)
-                            ->columnSpanFull(),
-                    ])
-                    ->columns(2),
+                        Forms\Components\Group::make()
+                            ->schema([
+                                Forms\Components\Section::make(__('Product Information'))
+                                    ->schema([
+                                        Forms\Components\TextInput::make('name')
+                                            ->required()
+                                            ->maxLength(255)
+                                            ->label(__('Name'))
+                                            ->autocomplete(false)
+                                            ->reactive()
+                                            ->columnSpan(2),
+                                        Forms\Components\TextInput::make('sku')
+                                            ->label(__('SKU'))
+                                            ->unique(ignoreRecord: true)
+                                            ->maxLength(255)
+                                            ->default(function () {
+                                                $lastProduct = \App\Models\Product::orderBy('id', 'desc')->first();
+                                                $nextId = $lastProduct ? $lastProduct->id + 1 : 1;
+                                                $year = date('Y');
+                                                return sprintf('PRD-%s-%05d', $year, $nextId);
+                                            })
+                                            ->helperText(__('Auto-generated SKU'))
+                                            ->reactive(),
+                                        Forms\Components\Select::make('category_id')
+                                            ->relationship('category', 'name')
+                                            ->searchable()
+                                            ->preload()
+                                            ->label(__('Category'))
+                                            ->reactive()
+                                            ->createOptionForm([
+                                                Forms\Components\TextInput::make('name')
+                                                    ->required()
+                                                    ->maxLength(255)
+                                                    ->label(__('Name')),
+                                                Forms\Components\Textarea::make('description')
+                                                    ->rows(3)
+                                                    ->label(__('Description')),
+                                            ]),
+                                        Forms\Components\FileUpload::make('photo_path')
+                                            ->label(__('Product Image'))
+                                            ->image()
+                                            ->imageEditor()
+                                            ->directory('products')
+                                            ->visibility('public')
+                                            ->columnSpanFull(),
+                                        Forms\Components\Textarea::make('description')
+                                            ->label(__('Description'))
+                                            ->rows(4)
+                                            ->columnSpanFull(),
+                                    ])
+                                    ->columns(2),
 
-                Forms\Components\Section::make(__('Pricing & Stock'))
-                    ->schema([
-                        Forms\Components\TextInput::make('price_per_unit')
-                            ->label(__('Price per Unit'))
-                            ->required()
-                            ->numeric()
-                            ->prefix('DZD')
-                            ->minValue(0)
-                            ->default(0.00)
-                            ->step(0.01),
-                        Forms\Components\Select::make('country_origin')
-                            ->label(__('Country of Origin'))
-                            ->options([
-                                'China' => 'China',
-                                'Turkey' => 'Turkey',
-                                'UAE' => 'UAE (Dubai)',
-                                'Algeria' => 'Algeria',
-                                'France' => 'France',
-                                'Germany' => 'Germany',
-                                'Italy' => 'Italy',
-                                'Spain' => 'Spain',
-                                'USA' => 'USA',
-                                'Other' => 'Other',
+                                Forms\Components\Section::make(__('Pricing & Stock'))
+                                    ->schema([
+                                        Forms\Components\TextInput::make('price_per_unit')
+                                            ->label(__('Price per Unit'))
+                                            ->required()
+                                            ->numeric()
+                                            ->prefix('DZD')
+                                            ->minValue(0)
+                                            ->default(0.00)
+                                            ->step(0.01)
+                                            ->reactive(),
+                                        Forms\Components\Select::make('country_origin')
+                                            ->label(__('Country of Origin'))
+                                            ->options([
+                                                'China' => 'China',
+                                                'Turkey' => 'Turkey',
+                                                'UAE' => 'UAE (Dubai)',
+                                                'Algeria' => 'Algeria',
+                                                'France' => 'France',
+                                                'Germany' => 'Germany',
+                                                'Italy' => 'Italy',
+                                                'Spain' => 'Spain',
+                                                'USA' => 'USA',
+                                                'Other' => 'Other',
+                                            ])
+                                            ->searchable()
+                                            ->reactive()
+                                            ->placeholder(__('Select country')),
+                                        Forms\Components\TextInput::make('stock_quantity')
+                                            ->label(__('Stock Quantity'))
+                                            ->required()
+                                            ->numeric()
+                                            ->minValue(0)
+                                            ->default(0)
+                                            ->reactive()
+                                            ->helperText(__('Current stock quantity')),
+                                        Forms\Components\TextInput::make('low_stock_threshold')
+                                            ->label(__('Low Stock Alert Threshold'))
+                                            ->required()
+                                            ->numeric()
+                                            ->minValue(1)
+                                            ->default(10)
+                                            ->helperText(__('Alert when stock falls below this value')),
+                                        Forms\Components\Toggle::make('is_active')
+                                            ->label(__('Active'))
+                                            ->default(true)
+                                            ->columnSpanFull(),
+                                    ])
+                                    ->columns(2),
                             ])
-                            ->searchable()
-                            ->placeholder(__('Select country')),
-                        Forms\Components\TextInput::make('stock_quantity')
-                            ->label(__('Stock Quantity'))
-                            ->required()
-                            ->numeric()
-                            ->minValue(0)
-                            ->default(0)
-                            ->helperText(__('Current stock quantity')),
-                        Forms\Components\TextInput::make('low_stock_threshold')
-                            ->label(__('Low Stock Alert Threshold'))
-                            ->required()
-                            ->numeric()
-                            ->minValue(1)
-                            ->default(10)
-                            ->helperText(__('Alert when stock falls below this value')),
-                        Forms\Components\Toggle::make('is_active')
-                            ->label(__('Active'))
-                            ->default(true)
-                            ->columnSpanFull(),
+                            ->columnSpan(['lg' => 2]),
+
+                        Forms\Components\Group::make()
+                            ->schema([
+                                Forms\Components\Section::make(__('QR Code Preview'))
+                                    ->schema([
+                                        Forms\Components\Placeholder::make('qr_preview')
+                                            ->label('')
+                                            ->content(function ($get) {
+                                                $name = $get('name') ?? '';
+                                                $sku = $get('sku') ?? '';
+                                                $price = $get('price_per_unit') ?? 0;
+
+                                                if (empty($name) && empty($sku)) {
+                                                    return new \Illuminate\Support\HtmlString('<div class="text-center text-gray-500">Enter product details to generate QR code</div>');
+                                                }
+
+                                                $qrData = json_encode([
+                                                    'sku' => $sku,
+                                                    'name' => $name,
+                                                    'price' => $price,
+                                                ]);
+
+                                                // Generate a simple QR code URL using a public API
+                                                $qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' . urlencode($qrData);
+
+                                                return new \Illuminate\Support\HtmlString('
+                                                    <div class="text-center space-y-4">
+                                                        <img src="' . $qrUrl . '" alt="QR Code" class="mx-auto rounded-lg shadow-sm" />
+                                                        <div class="text-sm">
+                                                            <p class="font-semibold text-gray-900 dark:text-white">' . e($name ?: 'Product Name') . '</p>
+                                                            <p class="text-gray-600 dark:text-gray-400">SKU: ' . e($sku ?: 'Auto-generated') . '</p>
+                                                            <p class="text-gray-600 dark:text-gray-400">Price: DZD ' . number_format($price, 2) . '</p>
+                                                        </div>
+                                                        <button type="button" onclick="window.print()" class="inline-flex items-center px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors">
+                                                            <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+                                                            </svg>
+                                                            Print QR
+                                                        </button>
+                                                    </div>
+                                                ');
+                                            }),
+                                    ])
+                                    ->visible(fn ($get) => !empty($get('name')) || !empty($get('sku'))),
+                            ])
+                            ->columnSpan(['lg' => 1]),
                     ])
-                    ->columns(2),
+                    ->columns(3),
             ]);
     }
 
@@ -128,7 +193,7 @@ class ProductResource extends Resource
                 Tables\Columns\ImageColumn::make('photo_path')
                     ->label(__('Image'))
                     ->circular()
-                    ->defaultImageUrl(url('/images/placeholder.png')),
+                    ->defaultImageUrl(url('/images/placeholder.svg')),
                 Tables\Columns\TextColumn::make('name')
                     ->searchable()
                     ->sortable()
@@ -185,6 +250,7 @@ class ProductResource extends Resource
                     ->native(false),
             ])
             ->actions([
+                Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
                 Tables\Actions\DeleteAction::make(),
             ])
@@ -208,6 +274,7 @@ class ProductResource extends Resource
         return [
             'index' => Pages\ListProducts::route('/'),
             'create' => Pages\CreateProduct::route('/create'),
+            'view' => Pages\ViewProduct::route('/{record}'),
             'edit' => Pages\EditProduct::route('/{record}/edit'),
         ];
     }
