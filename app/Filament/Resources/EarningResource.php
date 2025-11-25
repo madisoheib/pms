@@ -15,7 +15,7 @@ class EarningResource extends Resource
 {
     protected static ?string $model = Earning::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-chart-bar';
+    protected static ?string $navigationIcon = 'heroicon-o-currency-dollar';
 
     protected static ?string $navigationGroup = 'Financial Management';
 

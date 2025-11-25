@@ -387,32 +387,35 @@ class OrderResource extends Resource
     {
         return $table
             ->columns([
+                // QR Code Column
+                Tables\Columns\ImageColumn::make('qr_code')
+                    ->label(__('QR'))
+                    ->getStateUsing(function (Order $record) {
+                        $qrData = json_encode([
+                            'order' => $record->order_number,
+                            'total' => $record->total_price,
+                            'items' => $record->items->count(),
+                            'status' => $record->status,
+                        ]);
+                        return 'https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=' . urlencode($qrData);
+                    })
+                    ->width(60)
+                    ->height(60)
+                    ->extraAttributes(['title' => 'Click to download full QR'])
+                    ->toggleable(),
+
+                // Order Info Group
                 Tables\Columns\TextColumn::make('order_number')
                     ->label(__('Order #'))
                     ->searchable()
                     ->sortable()
+                    ->size('lg')
                     ->weight('bold')
                     ->copyable()
-                    ->copyMessage(__('Order number copied')),
+                    ->copyMessage(__('Order number copied'))
+                    ->icon('heroicon-o-document-text'),
 
-                // Product Photos Column
-                Tables\Columns\ViewColumn::make('product_images')
-                    ->label(__('Products'))
-                    ->view('filament.tables.columns.order-products'),
-
-                Tables\Columns\TextColumn::make('items_count')
-                    ->label(__('Qty'))
-                    ->counts('items')
-                    ->badge()
-                    ->color('info')
-                    ->sortable(),
-
-                Tables\Columns\TextColumn::make('items.product.name')
-                    ->label(__('Product Names'))
-                    ->listWithLineBreaks()
-                    ->limitList(2)
-                    ->expandableLimitedList()
-                    ->searchable(),
+                // Status with better formatting
                 Tables\Columns\TextColumn::make('status')
                     ->label(__('Status'))
                     ->badge()
@@ -423,54 +426,108 @@ class OrderResource extends Resource
                         'confirmed' => 'success',
                         default => 'gray',
                     })
+                    ->icon(fn (string $state): string => match ($state) {
+                        'pending' => 'heroicon-o-clock',
+                        'in_transit' => 'heroicon-o-truck',
+                        'received' => 'heroicon-o-check-circle',
+                        'confirmed' => 'heroicon-o-badge-check',
+                        default => 'heroicon-o-question-mark-circle',
+                    })
                     ->formatStateUsing(fn (string $state): string => ucfirst(str_replace('_', ' ', $state)))
                     ->sortable(),
-                Tables\Columns\TextColumn::make('items.quantity')
-                    ->label(__('Total Qty'))
-                    ->sum('items', 'quantity')
-                    ->numeric()
-                    ->alignCenter(),
+
+                // Product Display - Simplified
+                Tables\Columns\ViewColumn::make('product_images')
+                    ->label(__('Products'))
+                    ->view('filament.tables.columns.order-products')
+                    ->width('200px'),
+
+                // Quantity Summary
+                Tables\Columns\TextColumn::make('items_summary')
+                    ->label(__('Items'))
+                    ->state(function ($record) {
+                        $itemCount = $record->items()->count();
+                        $totalQty = $record->items()->sum('quantity');
+                        return "{$itemCount} " . ($itemCount == 1 ? 'item' : 'items') . " ({$totalQty} qty)";
+                    })
+                    ->badge()
+                    ->color('info')
+                    ->icon('heroicon-o-cube'),
+
+                // Financial Summary
                 Tables\Columns\TextColumn::make('total_price')
-                    ->label(__('Total'))
+                    ->label(__('Total Amount'))
                     ->money('DZD')
-                    ->sortable(),
+                    ->sortable()
+                    ->size('lg')
+                    ->weight('semibold')
+                    ->color('success'),
+
+                // Supplier with Icon
                 Tables\Columns\TextColumn::make('supplier.name')
                     ->label(__('Supplier'))
                     ->searchable()
                     ->sortable()
+                    ->icon('heroicon-o-building-office')
+                    ->placeholder('—')
                     ->toggleable(),
+
+                // Destination Hub
+                Tables\Columns\TextColumn::make('stockHub.name')
+                    ->label(__('Destination'))
+                    ->searchable()
+                    ->sortable()
+                    ->badge()
+                    ->color('primary')
+                    ->icon('heroicon-o-map-pin')
+                    ->toggleable(),
+
+                // Delivery Date
+                Tables\Columns\TextColumn::make('delivery_date_expected')
+                    ->label(__('Expected'))
+                    ->date()
+                    ->sortable()
+                    ->icon('heroicon-o-calendar')
+                    ->color(fn ($state) => $state && $state < now() ? 'danger' : 'gray')
+                    ->toggleable(),
+
+                // Client (Hidden by default)
                 Tables\Columns\TextColumn::make('client.name')
                     ->label(__('Client'))
                     ->searchable()
                     ->sortable()
-                    ->toggleable()
-                    ->placeholder('—'),
-                Tables\Columns\TextColumn::make('stockHub.name')
-                    ->label(__('Hub'))
-                    ->searchable()
-                    ->sortable()
-                    ->badge()
-                    ->color('info')
-                    ->toggleable(),
-                Tables\Columns\TextColumn::make('delivery_date_expected')
-                    ->label(__('Expected Delivery'))
-                    ->date()
-                    ->sortable()
-                    ->toggleable(),
+                    ->icon('heroicon-o-user')
+                    ->placeholder('—')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                // Origin (Hidden by default)
                 Tables\Columns\TextColumn::make('country_origin')
                     ->label(__('Origin'))
                     ->searchable()
+                    ->badge()
+                    ->color('gray')
                     ->toggleable(isToggledHiddenByDefault: true),
+
+                // Created Info (Hidden by default)
+                Tables\Columns\TextColumn::make('created_at')
+                    ->label(__('Created'))
+                    ->dateTime('M j, Y')
+                    ->sortable()
+                    ->icon('heroicon-o-clock')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
                 Tables\Columns\TextColumn::make('createdBy.name')
                     ->label(__('Created By'))
                     ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('created_at')
-                    ->label(__('Created'))
-                    ->dateTime()
-                    ->sortable()
+                    ->icon('heroicon-o-user-circle')
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
+            ->contentGrid([
+                'md' => 1,
+                'xl' => 1,
+            ])
+            ->striped()
+            ->poll('60s')
             ->filters([
                 Tables\Filters\SelectFilter::make('status')
                     ->options([
@@ -503,10 +560,37 @@ class OrderResource extends Resource
                     ->label(__('Overdue Deliveries'))
                     ->toggle(),
             ])
+            ->filtersLayout(Tables\Enums\FiltersLayout::AboveContent)
+            ->filtersFormColumns(3)
             ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
                 Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make()
+                        ->icon('heroicon-o-eye'),
+                    Tables\Actions\EditAction::make()
+                        ->icon('heroicon-o-pencil-square'),
+                    Tables\Actions\Action::make('download_qr')
+                        ->label(__('Download QR Code'))
+                        ->icon('heroicon-o-qr-code')
+                        ->color('secondary')
+                        ->url(function (Order $record) {
+                            // Generate QR data with order details
+                            $qrData = json_encode([
+                                'type' => 'order',
+                                'order_number' => $record->order_number,
+                                'supplier' => $record->supplier?->name,
+                                'total' => $record->total_price . ' DZD',
+                                'items' => $record->items->count(),
+                                'total_qty' => $record->items->sum('quantity'),
+                                'status' => $record->status,
+                                'expected_delivery' => $record->delivery_date_expected?->format('Y-m-d'),
+                                'destination' => $record->stockHub?->name,
+                                'created' => $record->created_at->format('Y-m-d'),
+                            ]);
+
+                            // Generate QR code URL (500x500 for high quality download)
+                            return 'https://api.qrserver.com/v1/create-qr-code/?size=500x500&format=png&download=1&data=' . urlencode($qrData);
+                        })
+                        ->openUrlInNewTab(),
                     Tables\Actions\Action::make('mark_in_transit')
                         ->label(__('Mark In Transit'))
                         ->icon('heroicon-o-truck')
@@ -521,15 +605,57 @@ class OrderResource extends Resource
                         ->requiresConfirmation()
                         ->visible(fn (Order $record): bool => $record->isInTransit())
                         ->action(fn (Order $record) => $record->markAsReceived()),
-                    Tables\Actions\DeleteAction::make(),
-                ]),
+                    Tables\Actions\DeleteAction::make()
+                        ->icon('heroicon-o-trash'),
+                ])
+                    ->label(__('Actions'))
+                    ->icon('heroicon-o-ellipsis-horizontal')
+                    ->size('sm')
+                    ->color('gray')
+                    ->button(),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
+                    Tables\Actions\BulkAction::make('update_status')
+                        ->label(__('Update Status'))
+                        ->icon('heroicon-o-arrow-path')
+                        ->action(function ($records, array $data) {
+                            $records->each(function ($record) use ($data) {
+                                $record->update(['status' => $data['status']]);
+                            });
+                        })
+                        ->form([
+                            Forms\Components\Select::make('status')
+                                ->label(__('New Status'))
+                                ->options([
+                                    'pending' => __('Pending'),
+                                    'in_transit' => __('In Transit'),
+                                    'received' => __('Received'),
+                                    'confirmed' => __('Confirmed'),
+                                ])
+                                ->required(),
+                        ])
+                        ->requiresConfirmation()
+                        ->deselectRecordsAfterCompletion(),
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ])
-            ->defaultSort('created_at', 'desc');
+            ->emptyStateHeading(__('No orders yet'))
+            ->emptyStateDescription(__('Start by creating your first order.'))
+            ->emptyStateIcon('heroicon-o-shopping-cart')
+            ->emptyStateActions([
+                Tables\Actions\CreateAction::make()
+                    ->label(__('Create Order'))
+                    ->icon('heroicon-o-plus'),
+            ])
+            ->defaultSort('created_at', 'desc')
+            ->recordClasses(fn (Order $record) => match ($record->status) {
+                'confirmed' => 'opacity-75',
+                'received' => 'opacity-75',
+                default => null,
+            })
+            ->paginationPageOptions([10, 25, 50])
+            ->extremePaginationLinks();
     }
 
     public static function getRelations(): array

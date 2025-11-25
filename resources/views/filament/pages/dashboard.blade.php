@@ -127,8 +127,8 @@
         <a href="{{ route('filament.admin.resources.earnings.index') }}"
            class="group block bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-sm hover:shadow-lg transition-all duration-300 border border-gray-100 dark:border-gray-700 hover:border-amber-300 dark:hover:border-amber-600">
             <div class="flex flex-col items-center space-y-4">
-                <div class="w-16 h-16 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                    <i class="fas fa-chart-line text-2xl text-white"></i>
+                <div class="w-16 h-16 rounded-xl bg-gradient-to-br from-yellow-400 to-yellow-500 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
+                    <i class="fas fa-money-bill-wave text-2xl text-white"></i>
                 </div>
                 <h3 class="text-xl font-normal text-gray-900 dark:text-white">Earnings</h3>
             </div>
